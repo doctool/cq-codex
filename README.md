@@ -37,6 +37,19 @@ make uninstall-claude
 
 If you configured team sync, you may also want to remove `CQ_TEAM_ADDR` and `CQ_TEAM_API_KEY` from `~/.claude/settings.json`.
 
+### Codex (plugin)
+
+Codex discovers repo-local marketplaces at `.agents/plugins/marketplace.json`. This repo includes a `cq` entry that points to `./plugins/cq`.
+
+```bash
+git clone https://github.com/mozilla-ai/cq.git
+cd cq
+```
+
+Then restart Codex, open the plugin directory, choose the repo marketplace (`mozilla-ai-local`), and install `cq`.
+
+To uninstall, remove or disable the `cq` entry in your Codex plugin settings (`~/.agents/plugins/marketplace.json` and `~/.codex/config.toml`).
+
 ### OpenCode (MCP server)
 
 Also requires: `jq`
@@ -87,6 +100,17 @@ Add variables to `~/.claude/settings.json` under the `env` key:
   }
 }
 ```
+
+### Codex
+
+Set the variables in your shell before launching Codex so the bundled `cq` MCP server can read them:
+
+```bash
+export CQ_TEAM_ADDR=http://localhost:8742
+export CQ_TEAM_API_KEY=your-api-key  # pragma: allowlist secret
+```
+
+Leave `CQ_TEAM_ADDR` unset to keep local-only mode.
 
 ### OpenCode
 

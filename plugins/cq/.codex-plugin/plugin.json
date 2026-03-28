@@ -1,0 +1,42 @@
+{
+  "name": "cq",
+  "version": "0.4.0",
+  "description": "Shared knowledge commons for AI agents; find, share, and confirm collective knowledge to stop rediscovering the same failures.",
+  "author": {
+    "name": "Mozilla AI",
+    "url": "https://github.com/mozilla-ai"
+  },
+  "homepage": "https://github.com/mozilla-ai/cq",
+  "repository": "https://github.com/mozilla-ai/cq",
+  "license": "Apache-2.0",
+  "keywords": [
+    "knowledge-sharing",
+    "agent-learning",
+    "agent-commons",
+    "mcp",
+    "pitfall-avoidance",
+    "team-knowledge",
+    "api-quirks"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "cq",
+    "shortDescription": "Shared knowledge commons for coding agents",
+    "longDescription": "Find, share, and confirm collective knowledge so agents stop rediscovering the same failures.",
+    "developerName": "Mozilla AI",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/mozilla-ai/cq",
+    "privacyPolicyURL": "https://www.mozilla.org/privacy/",
+    "termsOfServiceURL": "https://www.mozilla.org/about/legal/terms/mozilla/",
+    "defaultPrompt": [
+      "Query cq before integrating an unfamiliar API.",
+      "Use cq to reflect on this session and propose reusable insights."
+    ],
+    "brandColor": "#0A84FF"
+  }
+}

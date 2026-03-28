@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "cq": {
+      "command": "uv",
+      "args": [
+        "run",
+        "--directory",
+        "./server",
+        "cq-mcp-server"
+      ]
+    }
+  }
+}
