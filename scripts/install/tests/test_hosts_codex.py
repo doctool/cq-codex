@@ -86,15 +86,11 @@ def test_codex_install_idempotent(tmp_path, plugin_root):
 def test_codex_install_skips_unmanaged_existing_cq_section(tmp_path, plugin_root):
     ctx = _ctx(tmp_path, plugin_root)
     config_file = ctx.target / "config.toml"
-    config_file.write_text(
-        '[mcp_servers.cq]\ncommand = "custom-cq"\nargs = ["serve"]\n'
-    )
+    config_file.write_text('[mcp_servers.cq]\ncommand = "custom-cq"\nargs = ["serve"]\n')
 
     results = CodexHost().install(ctx)
 
-    assert any(
-        r.action == Action.SKIPPED and "user-managed" in r.detail for r in results
-    )
+    assert any(r.action == Action.SKIPPED and "user-managed" in r.detail for r in results)
     assert "# cq:start" not in config_file.read_text()
 
 
