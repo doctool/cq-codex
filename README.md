@@ -117,7 +117,7 @@ make uninstall-codex PROJECT=/path/to/your/project
 The repo also includes native Codex plugin packaging:
 
 - `plugins/cq/.codex-plugin/plugin.json` — Codex plugin manifest.
-- `plugins/cq/.mcp.json` — plugin-local MCP wiring for the shared cq server bootstrap.
+- `plugins/cq/.mcp.json` — plugin-local MCP wiring for the shared cq server bootstrap via `uv`.
 - `.agents/plugins/marketplace.json` — repo-local marketplace entry so Codex can discover the plugin from a checkout.
 
 ### Cursor
@@ -187,6 +187,7 @@ cd scripts/install && uv run python -m cq_install install --target cursor --glob
 Windows doesn't ship `make`, so the Makefile targets aren't available. Use the PowerShell wrapper instead:
 
 ```powershell
+.\scripts\install.ps1 install --target codex --global
 .\scripts\install.ps1 install --target cursor --global
 .\scripts\install.ps1 install --target windsurf --global
 .\scripts\install.ps1 install --target opencode --global
@@ -196,6 +197,7 @@ Or invoke the installer directly:
 
 ```powershell
 cd scripts\install
+uv run python -m cq_install install --target codex --global
 uv run python -m cq_install install --target cursor --global
 ```
 

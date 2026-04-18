@@ -1,8 +1,10 @@
 {
   "mcpServers": {
     "cq": {
-      "command": "python3",
+      "command": "uv",
       "args": [
+        "run",
+        "python",
         "./scripts/bootstrap.py"
       ]
     }

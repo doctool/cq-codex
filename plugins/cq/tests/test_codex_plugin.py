@@ -38,8 +38,8 @@ def test_codex_plugin_mcp_config_uses_bootstrap_script():
     assert config == {
         "mcpServers": {
             "cq": {
-                "command": "python3",
-                "args": ["./scripts/bootstrap.py"],
+                "command": "uv",
+                "args": ["run", "python", "./scripts/bootstrap.py"],
             }
         }
     }
