@@ -87,6 +87,39 @@ make uninstall-opencode PROJECT=/path/to/your/project
 
 If you configured remote sync, you may also want to remove the `environment` block from the cq entry in your OpenCode config.
 
+### Codex
+
+```bash
+git clone https://github.com/mozilla-ai/cq.git
+cd cq
+make install-codex
+```
+
+Or for a specific project:
+
+```bash
+make install-codex PROJECT=/path/to/your/project
+```
+
+This writes:
+
+- `~/.codex/config.toml` or `<project>/.codex/config.toml` — adds a managed `[mcp_servers.cq]` entry pointing at the shared cq runtime binary.
+- `~/.agents/skills/cq/` or `<project>/.agents/skills/cq/` — the shared cq skill commons.
+
+To uninstall:
+
+```bash
+make uninstall-codex
+# or for a specific project:
+make uninstall-codex PROJECT=/path/to/your/project
+```
+
+The repo also includes native Codex plugin packaging:
+
+- `plugins/cq/.codex-plugin/plugin.json` — Codex plugin manifest.
+- `plugins/cq/.mcp.json` — plugin-local MCP wiring for the shared cq server bootstrap.
+- `.agents/plugins/marketplace.json` — repo-local marketplace entry so Codex can discover the plugin from a checkout.
+
 ### Cursor
 
 ```bash

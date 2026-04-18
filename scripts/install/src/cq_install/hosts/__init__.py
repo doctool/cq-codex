@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from cq_install.hosts.base import HostDef
 from cq_install.hosts.claude import ClaudeHost
+from cq_install.hosts.codex import CodexHost
 from cq_install.hosts.cursor import CursorHost
 from cq_install.hosts.opencode import OpenCodeHost
 from cq_install.hosts.windsurf import WindsurfHost
 
 REGISTRY: dict[str, HostDef] = {
+    "codex": CodexHost(),
     "opencode": OpenCodeHost(),
     "cursor": CursorHost(),
     "windsurf": WindsurfHost(),

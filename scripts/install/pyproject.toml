@@ -1,7 +1,7 @@
 [project]
 name = "cq-install"
 version = "0.1.0"
-description = "Multi-host installer for the cq plugin (OpenCode, Cursor, Windsurf, Claude Code)"
+description = "Multi-host installer for the cq plugin (Codex, OpenCode, Cursor, Windsurf, Claude Code)"
 requires-python = ">=3.11"
 license = { text = "Apache-2.0" }
 dependencies = []

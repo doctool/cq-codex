@@ -8,6 +8,12 @@ help:
 	@echo "  make install-claude                          Install cq plugin via Claude marketplace"
 	@echo "  make uninstall-claude                        Remove cq plugin via Claude marketplace"
 	@echo ""
+	@echo "Codex:"
+	@echo "  make install-codex                           Install globally (~/.codex/)"
+	@echo "  make install-codex PROJECT=/path/to/app      Install into a specific project"
+	@echo "  make uninstall-codex                         Remove global Codex install"
+	@echo "  make uninstall-codex PROJECT=/path/to/app    Remove from a specific project"
+	@echo ""
 	@echo "OpenCode:"
 	@echo "  make install-opencode                        Install globally (~/.config/opencode/)"
 	@echo "  make install-opencode PROJECT=/path/to/app   Install into a specific project"
@@ -121,6 +127,22 @@ else
 	cd scripts/install && uv run python -m cq_install install --target cursor --global
 endif
 
+.PHONY: install-codex
+install-codex:
+ifdef PROJECT
+	cd scripts/install && uv run python -m cq_install install --target codex --project "$(PROJECT)"
+else
+	cd scripts/install && uv run python -m cq_install install --target codex --global
+endif
+
+.PHONY: uninstall-codex
+uninstall-codex:
+ifdef PROJECT
+	cd scripts/install && uv run python -m cq_install uninstall --target codex --project "$(PROJECT)"
+else
+	cd scripts/install && uv run python -m cq_install uninstall --target codex --global
+endif
+
 .PHONY: uninstall-cursor
 uninstall-cursor:
 ifdef PROJECT
@@ -162,11 +184,11 @@ endif
 .PHONY: install-all
 install-all:
 ifdef PROJECT
-	cd scripts/install && uv run python -m cq_install install --target opencode --target cursor --target claude --project "$(PROJECT)"
+	cd scripts/install && uv run python -m cq_install install --target codex --target opencode --target cursor --target claude --project "$(PROJECT)"
 	@echo "Note: Windsurf has no per-project MCP config; installing it globally."
 	cd scripts/install && uv run python -m cq_install install --target windsurf --global
 else
-	cd scripts/install && uv run python -m cq_install install --target opencode --target cursor --target windsurf --target claude --global
+	cd scripts/install && uv run python -m cq_install install --target codex --target opencode --target cursor --target windsurf --target claude --global
 endif
 
 .PHONY: compose-up

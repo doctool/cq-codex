@@ -7,8 +7,8 @@ import pytest
 from cq_install.hosts import REGISTRY, HostDef, get_host
 
 
-def test_registry_lists_all_four_hosts():
-    assert set(REGISTRY) == {"cursor", "windsurf", "opencode", "claude"}
+def test_registry_lists_all_supported_hosts():
+    assert set(REGISTRY) == {"codex", "cursor", "windsurf", "opencode", "claude"}
 
 
 def test_get_host_returns_host_def():
@@ -28,3 +28,7 @@ def test_windsurf_does_not_support_project():
 
 def test_claude_does_not_support_host_isolated():
     assert get_host("claude").supports_host_isolated is False
+
+
+def test_codex_does_not_support_host_isolated():
+    assert get_host("codex").supports_host_isolated is False

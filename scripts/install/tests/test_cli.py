@@ -86,6 +86,15 @@ def test_install_opencode_project(fake_repo, tmp_path):
     assert config["mcp"]["cq"]["type"] == "local"
 
 
+def test_install_codex_project(fake_repo, tmp_path):
+    project = tmp_path / "myapp"
+    project.mkdir()
+    rc = main(["install", "--target", "codex", "--project", str(project)])
+    assert rc == 0
+    config = (project / ".codex" / "config.toml").read_text()
+    assert "[mcp_servers.cq]" in config
+
+
 def test_install_dry_run_does_not_write(fake_repo, tmp_path):
     project = tmp_path / "myapp"
     project.mkdir()
@@ -133,6 +142,15 @@ def test_install_host_isolated_skills_rejected_for_unsupported_host(fake_repo, c
     captured = capsys.readouterr()
     assert rc != 0
     assert "claude" in captured.err.lower()
+    assert "host-isolated-skills" in captured.err.lower()
+
+
+def test_install_host_isolated_skills_rejected_for_codex(fake_repo, capsys):
+    del fake_repo
+    rc = main(["install", "--target", "codex", "--host-isolated-skills", "--global"])
+    captured = capsys.readouterr()
+    assert rc != 0
+    assert "codex" in captured.err.lower()
     assert "host-isolated-skills" in captured.err.lower()
 
 
