@@ -6,7 +6,8 @@
         "run",
         "python",
         "./scripts/bootstrap.py"
-      ]
+      ],
+      "cwd": "."
     }
   }
 }
