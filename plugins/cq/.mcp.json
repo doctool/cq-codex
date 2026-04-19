@@ -4,8 +4,9 @@
       "command": "uv",
       "args": [
         "run",
+        "--no-project",
         "python",
-        "./scripts/bootstrap.py"
+        "./scripts/codex_bridge.py"
       ],
       "cwd": "."
     }

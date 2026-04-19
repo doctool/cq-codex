@@ -39,7 +39,7 @@ def test_codex_plugin_mcp_config_uses_bootstrap_script():
         "mcpServers": {
             "cq": {
                 "command": "uv",
-                "args": ["run", "python", "./scripts/bootstrap.py"],
+                "args": ["run", "--no-project", "python", "./scripts/codex_bridge.py"],
                 "cwd": ".",
             }
         }
