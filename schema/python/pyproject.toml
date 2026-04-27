@@ -1,15 +1,11 @@
 [project]
-name = "cq-sdk"
+name = "cq-schema"
 version = "0.0.0.dev0"
-description = "Python SDK for cq — shared agent knowledge commons"
+description = "Canonical JSON Schemas and scoring values for cq — shared agent knowledge commons"
 readme = "README.md"
 requires-python = ">=3.11"
 license = { text = "Apache-2.0" }
-dependencies = [
-    "cq-schema>=0.0.0.dev0",
-    "httpx>=0.28.1",
-    "pydantic>=2.12.5",
-]
+dependencies = []
 
 [project.urls]
 Homepage = "https://github.com/mozilla-ai/cq"
@@ -32,9 +28,6 @@ tests = [
     "pytest>=9.0.2",
 ]
 
-[tool.uv.sources]
-cq-schema = { path = "../../schema/python", editable = true }
-
 [build-system]
 requires = ["setuptools>=48"]
 build-backend = "setuptools.build_meta"
@@ -45,15 +38,7 @@ where = ["src"]
 namespaces = false
 
 [tool.setuptools.package-data]
-"*" = ["py.typed"]
-"cq.prompts" = ["SKILL.md", "reflect.md"]
-
-# Dynamic versioning via setuptools_scm is configured in the release
-# workflow. The tag pattern is sdk/python/X.Y.Z. During development,
-# the static version above is used.
-# [tool.setuptools_scm]
-# root = "../.."
-# tag_regex = "^sdk/python/(?P<version>.+)$"
+"cq_schema" = ["py.typed", "_data/*.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
