@@ -1,5 +1,6 @@
 """Tests for the cq remote API endpoints."""
 
+import asyncio
 from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
@@ -43,7 +44,7 @@ def _seed_user_and_login(
     from cq_server.app import _get_store
     from cq_server.auth import hash_password
 
-    _get_store().create_user(username, hash_password(password))
+    asyncio.run(_get_store().create_user(username, hash_password(password)))
     resp = client.post("/auth/login", json={"username": username, "password": password})
     assert resp.status_code == 200
     return resp.json()["token"]
@@ -76,7 +77,7 @@ def _approve_unit(client: TestClient, unit_id: str) -> None:
     from cq_server.app import _get_store
 
     store = _get_store()
-    store.set_review_status(unit_id, "approved", "test-reviewer")
+    asyncio.run(store.set_review_status(unit_id, "approved", "test-reviewer"))
 
 
 class TestHealth:
@@ -278,8 +279,8 @@ class TestStats:
         r1 = client.post("/propose", json=_propose_payload(domains=["api", "auth"]))
         r2 = client.post("/propose", json=_propose_payload(domains=["api", "payments"]))
         store = _get_store()
-        store.set_review_status(r1.json()["id"], "approved", "tester")
-        store.set_review_status(r2.json()["id"], "approved", "tester")
+        asyncio.run(store.set_review_status(r1.json()["id"], "approved", "tester"))
+        asyncio.run(store.set_review_status(r2.json()["id"], "approved", "tester"))
         resp = client.get("/stats")
         assert resp.status_code == 200
         body = resp.json()
@@ -298,7 +299,7 @@ class TestReviewLifecycleEndToEnd:
         from cq_server.auth import hash_password
 
         store = _get_store()
-        store.create_user("reviewer", hash_password("pass123"))
+        asyncio.run(store.create_user("reviewer", hash_password("pass123")))
 
         # Log in.
         login_resp = client.post(
@@ -447,8 +448,8 @@ class TestApiKeyEnforcement:
         )
         body = create_resp.json()
         api_token = body["token"]
-        enforced_client.delete(
-            f"/auth/api-keys/{body['id']}",
+        enforced_client.post(
+            f"/auth/api-keys/{body['id']}/revoke",
             headers={"Authorization": f"Bearer {jwt_token}"},
         )
         resp = enforced_client.post(
@@ -482,7 +483,7 @@ class TestApiKeyEnforcement:
             "/auth/api-keys",
             headers={"Authorization": f"Bearer {jwt_token}"},
         ).json()
-        assert listed[0]["last_used_at"] is None
+        assert listed["data"][0]["last_used_at"] is None
 
         enforced_client.post(
             "/propose",
@@ -494,7 +495,7 @@ class TestApiKeyEnforcement:
             "/auth/api-keys",
             headers={"Authorization": f"Bearer {jwt_token}"},
         ).json()
-        assert listed_after[0]["last_used_at"] is not None
+        assert listed_after["data"][0]["last_used_at"] is not None
 
     def test_confirm_and_flag_require_api_key(self, enforced_client: TestClient) -> None:
         jwt_token = _seed_user_and_login(enforced_client)
