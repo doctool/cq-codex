@@ -76,16 +76,9 @@ async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
         raise RuntimeError(f"{API_KEY_PEPPER_ENV} environment variable is required")
     # Single URL feeds both the store factory and the migration runner,
     # so they can't diverge on which database they target. Run the
-    # factory first: it's the one place that maps URL → backend, and we
-    # want a Postgres URL to surface its ``NotImplementedError`` with
-    # #311/#312 guidance rather than failing inside Alembic with a
-    # raw psycopg ``ModuleNotFoundError``. SQLite ordering is
-    # equivalent — the legacy idempotent ``_ensure_schema()`` inside
-    # ``SqliteStore`` creates the tables, then ``run_migrations`` sees
-    # them, stamps baseline and upgrades to head (a no-op today).
-    # TODO(#310): once the legacy ``_ensure_schema()`` path is gone,
-    # flip back to migrations-first so fresh installs actually exercise
-    # migration 0001 instead of being stamped at baseline.
+    # factory first so a Postgres URL surfaces ``NotImplementedError``
+    # (#311/#312 guidance) instead of failing inside Alembic with a
+    # raw psycopg ``ModuleNotFoundError``.
     database_url = resolve_database_url()
     new_store = create_store(database_url)
     # Close ``new_store`` if migrations fail — otherwise its engine and
@@ -93,6 +86,8 @@ async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
     # (tests, restart loops). The post-yield ``finally`` only covers
     # successful boots.
     try:
+        # See ``cq_server.migrations.run_migrations`` for the
+        # three-case startup contract.
         run_migrations(database_url)
     except BaseException:
         await new_store.close()
