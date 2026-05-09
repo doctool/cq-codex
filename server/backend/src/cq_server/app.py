@@ -4,102 +4,62 @@ import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Annotated
 
 import uvicorn
-from cq.models import (
-    Context,
-    FlagReason,
-    Insight,
-    KnowledgeUnit,
-    Tier,
-    create_knowledge_unit,
-)
-from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query
+from fastapi import APIRouter, FastAPI, HTTPException
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
 from starlette.responses import FileResponse
 
-from .auth import router as auth_router
-from .db_url import resolve_sqlite_db_path
-from .deps import API_KEY_PEPPER_ENV, require_api_key
+from .api.routes.auth import router as auth_router
+from .api.routes.knowledge import router as knowledge_router
+from .api.routes.review import router as review_router
+from .api.routes.users import router as users_router
+from .core.config import Settings
+from .core.db import Database
 from .migrations import run_migrations
-from .review import router as review_router
-from .scoring import apply_confirmation, apply_flag
-from .store import SqliteStore, Store, normalize_domains
 
 _STATIC_DIR = Path(__file__).parent / "static"
 
 
-class ProposeRequest(BaseModel):
-    """Request body for proposing a new knowledge unit."""
-
-    domains: list[str] = Field(min_length=1)
-    insight: Insight
-    context: Context = Field(default_factory=Context)
-    created_by: str = ""
-
-
-class FlagRequest(BaseModel):
-    """Request body for flagging a knowledge unit."""
-
-    reason: FlagReason
-
-
-class StatsResponse(BaseModel):
-    """Response body for store statistics."""
-
-    total_units: int
-    tiers: dict[str, int]
-    domains: dict[str, int]
-
-
-_store: Store | None = None
-
-
-def _get_store() -> Store:
-    """Return the global store instance."""
-    if _store is None:
-        raise RuntimeError("Store not initialised")
-    return _store
-
-
 @asynccontextmanager
 async def lifespan(app_instance: FastAPI) -> AsyncIterator[None]:
-    """Manage the store lifecycle."""
-    global _store  # noqa: PLW0603
-    jwt_secret = os.environ.get("CQ_JWT_SECRET")
-    if not jwt_secret:
-        raise RuntimeError("CQ_JWT_SECRET environment variable is required")
-    pepper = os.environ.get(API_KEY_PEPPER_ENV, "")
-    if not pepper:
-        raise RuntimeError(f"{API_KEY_PEPPER_ENV} environment variable is required")
-    # Resolve URL and filesystem path together so the migration runner
-    # and the runtime store cannot diverge on which database they're
-    # using — see ``resolve_sqlite_db_path``. This drops once #309
-    # wires ``SqliteStore`` to ``CQ_DATABASE_URL`` directly.
-    database_url, db_path = resolve_sqlite_db_path()
-    # Bring the database under Alembic management before opening the
-    # store. Three cases handled: fresh DB → upgrade head; pre-Alembic
-    # DB → stamp baseline + upgrade head; already-stamped DB → upgrade
-    # head (no-op when no pending revisions). The legacy
-    # ``_ensure_schema()`` inside SqliteStore still runs after this;
-    # both paths are idempotent and the legacy one will be removed in
-    # #310 once this PR has rolled out everywhere.
-    run_migrations(database_url)
-    _store = SqliteStore(db_path=db_path)
-    app_instance.state.store = _store
-    app_instance.state.api_key_pepper = pepper
+    """Load configuration, run migrations, and own the database lifecycle."""
+    # ``Settings`` raises a ValidationError if either secret is unset, so
+    # the lifespan fails fast with a clear message instead of crashing
+    # later at first request.
+    # Fields populated from CQ_* env vars; the static type checker can't see that.
+    settings = Settings()  # ty: ignore[missing-argument]
+    # Single URL feeds both the database wrapper and the migration runner,
+    # so they can't diverge on which database they target. Build the
+    # ``Database`` first so a Postgres URL surfaces ``NotImplementedError``
+    # (#311/#312 guidance) instead of failing inside Alembic with a raw
+    # psycopg ``ModuleNotFoundError``.
+    database = Database(settings)
+    # Close the database if migrations fail — otherwise its engine and
+    # SQLite file handle leak across in-process lifespan re-entries
+    # (tests, restart loops). The post-yield ``finally`` only covers
+    # successful boots.
+    try:
+        # See ``cq_server.migrations.run_migrations`` for the
+        # three-case startup contract.
+        run_migrations(settings.resolved_database_url)
+    except BaseException:
+        await database.close()
+        raise
+    app_instance.state.settings = settings
+    app_instance.state.database = database
     try:
         yield
     finally:
-        await _store.close()
+        await database.close()
 
 
-# --- API routes on a shared router so they can be mounted at both / and /api. ---
+# --- API assembly: every domain router under /api/v1. ---
 
 api_router = APIRouter()
 api_router.include_router(auth_router)
+api_router.include_router(users_router)
+api_router.include_router(knowledge_router)
 api_router.include_router(review_router)
 
 
@@ -109,91 +69,13 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@api_router.get("/query")
-async def query_units(
-    domains: Annotated[list[str], Query()],
-    languages: Annotated[list[str] | None, Query()] = None,
-    frameworks: Annotated[list[str] | None, Query()] = None,
-    pattern: Annotated[str | None, Query()] = None,
-    limit: Annotated[int, Query(gt=0)] = 5,
-) -> list[KnowledgeUnit]:
-    """Search knowledge units by domain tags with relevance ranking."""
-    store = _get_store()
-    return await store.query(
-        domains,
-        languages=languages,
-        frameworks=frameworks,
-        pattern=pattern or "",
-        limit=limit,
-    )
-
-
-@api_router.post("/propose", status_code=201)
-async def propose_unit(
-    request: ProposeRequest,
-    username: str = Depends(require_api_key),
-) -> KnowledgeUnit:
-    """Submit a new knowledge unit.
-
-    ``created_by`` is always set to the authenticated caller's username; any
-    value supplied by the client is discarded.
-    """
-    store = _get_store()
-    normalized = normalize_domains(request.domains)
-    if not normalized:
-        raise HTTPException(status_code=422, detail="At least one non-empty domain is required")
-    unit = create_knowledge_unit(
-        domains=normalized,
-        insight=request.insight,
-        context=request.context,
-        tier=Tier.PRIVATE,
-        created_by=username,
-    )
-    await store.insert(unit)
-    return unit
-
-
-@api_router.post("/confirm/{unit_id}")
-async def confirm_unit(unit_id: str, _username: str = Depends(require_api_key)) -> KnowledgeUnit:
-    """Confirm a knowledge unit, boosting its confidence."""
-    store = _get_store()
-    unit = await store.get(unit_id)
-    if unit is None:
-        raise HTTPException(status_code=404, detail="Knowledge unit not found")
-    confirmed = apply_confirmation(unit)
-    await store.update(confirmed)
-    return confirmed
-
-
-@api_router.post("/flag/{unit_id}")
-async def flag_unit(unit_id: str, request: FlagRequest, _username: str = Depends(require_api_key)) -> KnowledgeUnit:
-    """Flag a knowledge unit, reducing its confidence."""
-    store = _get_store()
-    unit = await store.get(unit_id)
-    if unit is None:
-        raise HTTPException(status_code=404, detail="Knowledge unit not found")
-    flagged = apply_flag(unit, request.reason)
-    await store.update(flagged)
-    return flagged
-
-
-@api_router.get("/stats")
-async def stats() -> StatsResponse:
-    """Return store statistics."""
-    store = _get_store()
-    return StatsResponse(
-        total_units=await store.count(),
-        tiers=await store.counts_by_tier(),
-        domains=await store.domain_counts(),
-    )
-
-
 # --- Application assembly. ---
 
 app = FastAPI(title="cq Server", version="0.1.0", lifespan=lifespan)
 
-# Mount API routes at root (SDK compatibility) and at /api (frontend).
-app.include_router(api_router)
+# Mount API routes only at /api/v1; the previous root mount has been
+# removed so versioning is unambiguous and clients always route through
+# the same prefix.
 app.include_router(api_router, prefix="/api/v1")
 
 # Serve the frontend static build when present (combined Docker image).

@@ -26,7 +26,7 @@ from alembic.config import Config
 from sqlalchemy import create_engine, inspect
 from sqlalchemy.engine import make_url
 
-from .db_url import resolve_database_url
+from .core.config import database_url_from_env
 
 __all__ = ["BASELINE_REVISION", "run_migrations"]
 
@@ -57,19 +57,24 @@ _ALEMBIC_INI = _find_alembic_ini()
 def _ensure_sqlite_parent_dir(url: str) -> None:
     """Create the parent directory of a sqlite file URL if missing.
 
-    Until #309 wires the runtime store to ``CQ_DATABASE_URL``, the
-    server still mkdir's the SQLite parent inside ``SqliteStore``;
-    but the migration runs first now, so we hoist the directory
-    creation here. No-op for non-sqlite URLs.
+    Defensive coverage for callers that invoke ``run_migrations(url)``
+    standalone (CLI, ops scripts, ad-hoc tests) without first
+    constructing a ``SqliteStore``. The lifespan path goes through the
+    store first today, and ``SqliteStore.__init__`` mkdir's the parent
+    itself, but keeping the mkdir here means standalone migration runs
+    don't have to know about that. No-op for non-sqlite URLs.
     """
-    if not url.startswith("sqlite:"):
-        return
     # Use SQLAlchemy's URL parser rather than urlparse: it correctly
     # round-trips both absolute (`sqlite:////abs/path`) and relative
     # (`sqlite:///./rel.db`) SQLite URLs to a usable filesystem path,
     # whereas `urlparse(...).path` prefixes a stray `/` that turns
-    # `./data/dev.db` into the absolute `/data/dev.db`.
-    database = make_url(url).database
+    # `./data/dev.db` into the absolute `/data/dev.db`. Parsing the URL
+    # also lets us catch driver-suffixed schemes like
+    # ``sqlite+pysqlite://`` that a naive ``startswith("sqlite:")`` miss.
+    parsed = make_url(url)
+    if not parsed.drivername.startswith("sqlite"):
+        return
+    database = parsed.database
     if not database or database == ":memory:":
         return
     Path(database).parent.mkdir(parents=True, exist_ok=True)
@@ -81,15 +86,17 @@ def run_migrations(database_url: str | None = None) -> None:
     Assumes a single caller per database — concurrent invocations across
     replicas can race on the table-presence check and on ``upgrade``
     itself. Safe for the current single-instance SQLite deployment;
-    #309/#311 will revisit (likely via ``pg_advisory_lock``) when
-    Postgres + multi-replica land.
+    #313 will revisit (via ``pg_advisory_lock``) when Postgres +
+    multi-replica land.
 
     Args:
         database_url: SQLAlchemy URL to migrate. Defaults to the value
-            from :func:`cq_server.db_url.resolve_database_url`, which
-            consults ``CQ_DATABASE_URL`` and ``CQ_DB_PATH``.
+            from :func:`cq_server.core.config.database_url_from_env`,
+            which consults ``CQ_DATABASE_URL`` and ``CQ_DB_PATH`` directly
+            (no need to satisfy the rest of the ``Settings`` schema, since
+            the migration runner doesn't touch JWT or pepper).
     """
-    url = database_url or resolve_database_url()
+    url = database_url or database_url_from_env()
     _ensure_sqlite_parent_dir(url)
     redacted = _redact_url(url)
 
@@ -100,7 +107,7 @@ def run_migrations(database_url: str | None = None) -> None:
     # latter routes through ConfigParser's interpolation engine, which
     # raises ``ValueError: invalid interpolation syntax`` eagerly on any
     # literal ``%`` in the URL — a foot-gun once URL-encoded passwords
-    # land with Postgres in #309/#311, and already triggerable today by
+    # land with Postgres in #311/#312, and already triggerable today by
     # a SQLite filename containing ``%``. ``env.py`` picks up the
     # connection before it tries to build its own engine.
     engine = create_engine(url)
