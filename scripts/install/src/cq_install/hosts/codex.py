@@ -5,7 +5,8 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from cq_install.content import CQ_MCP_KEY, cq_binary_name
+from cq_install.common import copy_selected_paths
+from cq_install.content import CQ_MCP_KEY, PYTHON_COMMAND
 from cq_install.context import Action, ChangeResult, InstallContext
 from cq_install.hosts.base import HostDef
 from cq_install.runtime import runtime_root
@@ -15,6 +16,14 @@ CODEX_CONFIG_FILE = "config.toml"
 CODEX_MCP_BLOCK_START = "# cq:start"
 CODEX_MCP_BLOCK_END = "# cq:end"
 CODEX_MCP_HEADER = f"[mcp_servers.{CQ_MCP_KEY}]"
+CODEX_RUNTIME_MANIFEST = ".cq-install-codex-runtime-manifest.json"
+CODEX_BRIDGE_RELPATH = Path("scripts") / "codex_bridge.py"
+CODEX_BRIDGE_RUNTIME_RELPATH = CODEX_BRIDGE_RELPATH
+CODEX_BRIDGE_SUPPORT_RELPATHS = [
+    CODEX_BRIDGE_RELPATH,
+    Path("scripts") / "cq_binary.py",
+    Path("scripts") / "bootstrap.json",
+]
 
 
 class CodexHost(HostDef):
@@ -36,6 +45,7 @@ class CodexHost(HostDef):
         results: list[ChangeResult] = []
         results.extend(ctx.run_state.ensure_shared_skills(ctx))
         results.extend(ctx.run_state.ensure_cq_binary(ctx))
+        results.append(self._install_runtime(ctx))
         results.append(self._install_mcp(ctx))
         return results
 
@@ -73,6 +83,15 @@ class CodexHost(HostDef):
             config_path.write_text(updated)
         return ChangeResult(action=action, path=config_path)
 
+    def _install_runtime(self, ctx: InstallContext) -> ChangeResult:
+        return copy_selected_paths(
+            ctx.plugin_root,
+            runtime_root(),
+            relpaths=CODEX_BRIDGE_SUPPORT_RELPATHS,
+            manifest_name=CODEX_RUNTIME_MANIFEST,
+            dry_run=ctx.dry_run,
+        )
+
     def _uninstall_mcp(self, ctx: InstallContext) -> ChangeResult:
         config_path = ctx.target / CODEX_CONFIG_FILE
         if not config_path.exists():
@@ -96,13 +115,13 @@ class CodexHost(HostDef):
 
 
 def _mcp_block() -> str:
-    binary = runtime_root() / "bin" / cq_binary_name()
+    bridge = runtime_root() / CODEX_BRIDGE_RUNTIME_RELPATH
     return "\n".join(
         [
             CODEX_MCP_BLOCK_START,
             CODEX_MCP_HEADER,
-            f"command = {json.dumps(str(binary))}",
-            f'args = {json.dumps(["mcp"])}',
+            f"command = {json.dumps(PYTHON_COMMAND)}",
+            f"args = {json.dumps([str(bridge)])}",
             CODEX_MCP_BLOCK_END,
         ]
     )

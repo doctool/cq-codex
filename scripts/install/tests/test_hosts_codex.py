@@ -4,12 +4,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from cq_install.content import cq_binary_name
+from cq_install.content import PYTHON_COMMAND, cq_binary_name
 from cq_install.context import Action, InstallContext, RunState
 from cq_install.hosts.codex import CodexHost
 from cq_install.runtime import runtime_root
 
 RUNTIME_BINARY = Path("bin") / cq_binary_name()
+RUNTIME_BRIDGE = Path("scripts") / "codex_bridge.py"
+RUNTIME_CQ_BINARY = Path("scripts") / "cq_binary.py"
+RUNTIME_BOOTSTRAP = Path("scripts") / "bootstrap.json"
 
 
 def _ctx(tmp_path: Path, plugin_root: Path) -> InstallContext:
@@ -42,8 +45,8 @@ def test_codex_install_writes_mcp_config(tmp_path, plugin_root):
     text = (ctx.target / "config.toml").read_text()
     assert "# cq:start" in text
     assert "[mcp_servers.cq]" in text
-    assert f'command = "{shared_runtime / RUNTIME_BINARY}"' in text
-    assert 'args = ["mcp"]' in text
+    assert f'command = "{PYTHON_COMMAND}"' in text
+    assert f'args = ["{shared_runtime / RUNTIME_BRIDGE}"]' in text
 
 
 def test_codex_install_calls_ensure_cq_binary(tmp_path, plugin_root, monkeypatch):
@@ -75,6 +78,17 @@ def test_codex_install_creates_shared_skills(tmp_path, plugin_root):
     ctx = _ctx(tmp_path, plugin_root)
     CodexHost().install(ctx)
     assert (ctx.shared_skills_path / "cq" / "SKILL.md").exists()
+
+
+def test_codex_install_copies_bridge_runtime_assets(tmp_path, plugin_root):
+    ctx = _ctx(tmp_path, plugin_root)
+    shared_runtime = runtime_root()
+
+    CodexHost().install(ctx)
+
+    assert (shared_runtime / RUNTIME_BRIDGE).exists()
+    assert (shared_runtime / RUNTIME_CQ_BINARY).exists()
+    assert (shared_runtime / RUNTIME_BOOTSTRAP).exists()
 
 
 def test_codex_install_idempotent(tmp_path, plugin_root):

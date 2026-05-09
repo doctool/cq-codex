@@ -46,6 +46,7 @@ def plugin_root(tmp_path: Path) -> Path:
     (root / "scripts").mkdir(parents=True)
     (root / "scripts" / "bootstrap.json").write_text('{"cli_min_version": "0.2.0"}\n')
     (root / "scripts" / "bootstrap.py").write_text("# fake bootstrap\n")
+    (root / "scripts" / "codex_bridge.py").write_text("# fake codex bridge\n")
     (root / "scripts" / "cq_binary.py").write_text("# fake cq_binary\n")
     (root / "skills" / "cq").mkdir(parents=True)
     (root / "skills" / "cq" / "SKILL.md").write_text("# cq skill\n")
