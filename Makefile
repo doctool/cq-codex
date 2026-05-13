@@ -222,10 +222,10 @@ backup-db:
 .PHONY: seed-users
 seed-users:
 ifndef USER
-	$(error USER is required. Usage: make seed-users USER=peter PASS=changeme)
+	$(error USER is required. Usage: make seed-users USER=demouser PASS=changeme)
 endif
 ifndef PASS
-	$(error PASS is required. Usage: make seed-users USER=peter PASS=changeme)
+	$(error PASS is required. Usage: make seed-users USER=demouser PASS=changeme)
 endif
 	docker compose exec cq-server /app/.venv/bin/python /app/scripts/seed-users.py --username "$(USER)" --password "$(PASS)"
 
@@ -268,11 +268,11 @@ lint-cli:
 
 .PHONY: lint-install
 lint-install:
-	cd scripts/install && uv run --locked pre-commit run --files src/**/*.py tests/*.py pyproject.toml uv.lock
+	bash scripts/lint-python-component.sh scripts/install
 
 .PHONY: lint-plugin
 lint-plugin:
-	cd plugins/cq && uv run --locked pre-commit run --files scripts/*.py pyproject.toml uv.lock
+	bash scripts/lint-python-component.sh plugins/cq
 
 .PHONY: lint-schema-go
 lint-schema-go:
@@ -280,7 +280,7 @@ lint-schema-go:
 
 .PHONY: lint-schema-python
 lint-schema-python: sync-schema
-	cd schema/python && uv run --locked pre-commit run --files src/**/*.py pyproject.toml uv.lock
+	bash scripts/lint-python-component.sh schema/python
 
 .PHONY: lint-schema
 lint-schema: lint-schema-go lint-schema-python
@@ -291,11 +291,11 @@ lint-sdk-go: check-prompts-sync-sdk-go
 
 .PHONY: lint-sdk-python
 lint-sdk-python: check-prompts-sync-sdk-python sync-schema
-	cd sdk/python && uv run --locked pre-commit run --files src/**/*.py pyproject.toml uv.lock
+	bash scripts/lint-python-component.sh sdk/python
 
 .PHONY: lint-server-backend
 lint-server-backend:
-	cd server/backend && uv run --locked pre-commit run --files src/**/*.py pyproject.toml uv.lock
+	bash scripts/lint-python-component.sh server/backend
 
 .PHONY: lint-server-frontend
 lint-server-frontend:
