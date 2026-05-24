@@ -30,9 +30,7 @@ def _load_bridge() -> ModuleType:
 def test_read_framed_message_reads_body():
     bridge = _load_bridge()
     payload = b'{"jsonrpc":"2.0","id":1}'
-    stream = io.BytesIO(
-        f"Content-Length: {len(payload)}\r\nX-Test: 1\r\n\r\n".encode("ascii") + payload
-    )
+    stream = io.BytesIO(f"Content-Length: {len(payload)}\r\nX-Test: 1\r\n\r\n".encode("ascii") + payload)
     assert bridge._read_framed_message(stream) == payload
 
 
@@ -47,6 +45,7 @@ def test_forward_host_to_child_translates_to_newline_delimited():
     bridge = _load_bridge()
     payload = b'{"jsonrpc":"2.0","id":1}'
     host_in = io.BytesIO(f"Content-Length: {len(payload)}\r\n\r\n".encode("ascii") + payload)
+
     class _Writable(io.BytesIO):
         def close(self):
             pass
@@ -61,9 +60,7 @@ def test_forward_child_to_host_translates_to_framed():
     child_out = io.BytesIO(b'{"jsonrpc":"2.0","id":1}\n')
     host_out = io.BytesIO()
     bridge._forward_child_to_host(child_out, host_out)
-    assert host_out.getvalue() == (
-        b'Content-Length: 24\r\n\r\n{"jsonrpc":"2.0","id":1}'
-    )
+    assert host_out.getvalue() == (b'Content-Length: 24\r\n\r\n{"jsonrpc":"2.0","id":1}')
 
 
 def test_main_loads_binary_launches_child_and_exits(monkeypatch, tmp_path):

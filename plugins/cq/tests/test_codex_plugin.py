@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-
 PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -47,9 +46,7 @@ def test_codex_plugin_mcp_config_uses_bootstrap_script():
 
 
 def test_repo_marketplace_exposes_local_cq_plugin():
-    marketplace = json.loads(
-        (PLUGIN_ROOT.parent.parent / ".agents" / "plugins" / "marketplace.json").read_text()
-    )
+    marketplace = json.loads((PLUGIN_ROOT.parent.parent / ".agents" / "plugins" / "marketplace.json").read_text())
 
     assert marketplace["name"] == "mozilla-ai-local"
     assert marketplace["interface"]["displayName"] == "Mozilla AI Local Plugins"
