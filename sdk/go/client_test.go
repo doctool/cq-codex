@@ -317,6 +317,39 @@ func TestStatusWarnsOnRemoteFailure(t *testing.T) {
 	require.Contains(t, logBuf.String(), "remote stats unavailable")
 }
 
+func TestStatusSkipsUnknownRemoteTier(t *testing.T) {
+	testClearEnv(t)
+	srv := httptest.NewServer(withDiscoveryNotFound(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"total_count":   13,
+			"tier_counts":   map[string]int{"private": 4, "team": 9},
+			"domain_counts": map[string]int{},
+		})
+	})))
+	t.Cleanup(srv.Close)
+
+	dbPath := filepath.Join(t.TempDir(), "test.db")
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	var logBuf bytes.Buffer
+	logger := slog.New(slog.NewTextHandler(&logBuf, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	c, err := NewClient(WithAddr(srv.URL), WithLocalDBPath(dbPath), WithLogger(logger))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = c.Close() })
+
+	// A tier the SDK does not recognize is dropped from the totals, logged, and
+	// surfaced as a warning; never carried as an unknown key.
+	stats, err := c.Status(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, 4, stats.TotalCount, "only the known private tier counts toward the total")
+	require.Equal(t, 4, stats.TierCounts[Private])
+	require.NotContains(t, stats.TierCounts, Tier("team"))
+	require.Contains(t, logBuf.String(), "unknown tier")
+	require.NotEmpty(t, stats.Warnings, "dropped tier should surface as a warning")
+	require.Contains(t, stats.Warnings[0].Error(), "team")
+}
+
 func TestLifecycle(t *testing.T) {
 	c := newTestClient(t)
 	ctx := context.Background()
