@@ -22,35 +22,39 @@ Present the results using this structure:
 ### Tier Counts
 local: {count} | private: {count} | public: {count}
 
-*local* = on this machine only; *private* = shared with everyone who can reach the same `CQ_ADDR`; *public* = open commons (not yet available).
-
-### Domains
-{domain}: {count} | {domain}: {count} | ...
+*local* = on this machine only; *private* = shared with everyone who can reach the same `CQ_ADDR`; *public* = the open commons, shared across every node that participates in it (available when your configured remote serves it).
 
 ### Recent Local Additions
 - {id}: "{summary}" ({relative time})
 - ...
 
 ### Confidence Distribution
+*(covers local plus your private/org units; excludes the public commons)*
+
 ■ 0.7-1.0: {count} units
 ■ 0.5-0.7: {count} units
 ■ 0.3-0.5: {count} units
 ■ 0.0-0.3: {count} units
+
+### Domains
+{distinct count} total
+{domain} ({count}), {domain} ({count}) ... +{remaining} more
 ```
 
 The `tier_counts` field contains the tier breakdown. Display all tiers present in the response. Omit tiers with a count of 0.
 
 The `recent` field reflects the local store only. When a remote is configured and reachable, units proposed via `Client.Propose` go directly to the remote and do not appear here. If `recent` is empty, render the section as `(no recent local additions)` so users understand the scope.
 
-If the response includes `promoted_to_remote`, add this line after the total count:
+The `domain_counts` field maps each domain to its unit count. Domains are the least important section, so render them last and keep them compact: a `{distinct count} total` line, then the most-tagged few on the next line as `{domain} ({count})` (highest count first, ties alphabetical), capped at 8. If more than 8 exist, append the truncation marker after a single space, e.g. `{domain} ({count}) ... +{remaining} more`; do not leave a trailing comma before it.
+
+If the `warnings` field is non-empty, surface each entry prominently above the summary so the counts are not mistaken for the full picture. A warning means stats aggregation degraded; for example, an unreachable or misconfigured remote, in which case the counts reflect the local store only:
 
 ```
-Promoted {promoted_to_remote} knowledge units to the remote store at startup.
+> ⚠️ {warning}
 ```
 
 ## Empty Store
 
-When all tier counts are 0 (or `tier_counts` is absent):
+When all tier counts are 0 (or `tier_counts` is absent), display only:
 
-- **With `promoted_to_remote`:** Show the header, tier counts line, and promotion line. Omit Domains, Recent Local Additions, and Confidence sections (there is no data to display).
-- **Without `promoted_to_remote`:** Display only: "The cq store is empty. Knowledge units are added via `propose` or the `/cq:reflect` command."
+"The cq store is empty. Knowledge units are added via `propose` or the `/cq:reflect` command."

@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 from cq.models import KnowledgeUnit
 from cq.scoring import calculate_relevance
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.sql.expression import TextClause, text
 
 from ..core.db import Database
 from ._normalize import normalize_domains
@@ -23,6 +24,36 @@ from ._queries import (
     UPDATE_UNIT_DATA,
 )
 
+# Mirrors `cq.store._CONFIDENCE_BUCKETS`. Each entry is `(exclusive upper
+# bound, label)`, ordered low to high; the last entry's `inf` upper bound is
+# the catch-all. Single source for the result dict's key set and ordering.
+_CONFIDENCE_BUCKETS: list[tuple[float, str]] = [
+    (0.3, "0.0-0.3"),
+    (0.5, "0.3-0.5"),
+    (0.7, "0.5-0.7"),
+    (float("inf"), "0.7-1.0"),
+]
+
+# Bucket approved units by their persisted confidence in SQL rather than
+# parsing every unit into a model to read one float. The CASE thresholds must
+# stay in lockstep with `_CONFIDENCE_BUCKETS` above. COALESCE to 0.5 mirrors
+# the Evidence.confidence default that model-parsing applied, so a row whose
+# JSON omits the field buckets identically instead of falling to the catch-all.
+# SQLite-specific (`json_extract`), so it lives here rather than in the portable
+# `_queries` module; the backend is SQLite-only (see `core.db.Database`).
+_SELECT_CONFIDENCE_DISTRIBUTION: TextClause = text(
+    "SELECT "
+    "CASE "
+    "WHEN confidence < 0.3 THEN '0.0-0.3' "
+    "WHEN confidence < 0.5 THEN '0.3-0.5' "
+    "WHEN confidence < 0.7 THEN '0.5-0.7' "
+    "ELSE '0.7-1.0' "
+    "END AS bucket, COUNT(*) AS cnt "
+    "FROM (SELECT COALESCE(json_extract(data, '$.evidence.confidence'), 0.5) AS confidence "
+    "FROM knowledge_units WHERE status = 'approved') "
+    "GROUP BY bucket"
+)
+
 
 class KnowledgeRepository:
     """Read/write access to knowledge units."""
@@ -34,6 +65,10 @@ class KnowledgeRepository:
     async def count(self) -> int:
         """Return the total number of stored units across all review statuses."""
         return await self._db.run_sync(self._count_sync)
+
+    async def confidence_distribution(self) -> dict[str, int]:
+        """Return approved-unit counts grouped into the canonical confidence buckets."""
+        return await self._db.run_sync(self._confidence_distribution_sync)
 
     async def counts_by_tier(self) -> dict[str, int]:
         """Return approved-unit counts grouped by tier."""
@@ -81,6 +116,16 @@ class KnowledgeRepository:
     def _count_sync(self) -> int:
         with self._db.engine.connect() as conn:
             return int(conn.execute(SELECT_TOTAL_COUNT).scalar() or 0)
+
+    def _confidence_distribution_sync(self) -> dict[str, int]:
+        # Seed every canonical bucket so absent labels report 0; the SQL only
+        # returns rows for buckets that have at least one approved unit.
+        buckets = {label: 0 for _, label in _CONFIDENCE_BUCKETS}
+        with self._db.engine.connect() as conn:
+            rows = conn.execute(_SELECT_CONFIDENCE_DISTRIBUTION).fetchall()
+        for label, count in rows:
+            buckets[label] = count
+        return buckets
 
     def _counts_by_tier_sync(self) -> dict[str, int]:
         with self._db.engine.connect() as conn:

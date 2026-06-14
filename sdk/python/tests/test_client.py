@@ -10,6 +10,7 @@ import pytest
 
 from cq.client import Client, FallbackError, RemoteError
 from cq.models import FlagReason, Tier
+from cq.store import StoreStats
 
 
 @pytest.fixture()
@@ -100,6 +101,9 @@ class TestLocalOnlyMode:
         stats = client.status()
         assert stats.total_count == 1
         assert "api" in stats.domain_counts
+        # Local buckets use this SDK's unbracketed labels; a fresh unit sits at
+        # the default 0.5 confidence.
+        assert stats.confidence_distribution["0.5-0.7"] == 1
 
     def test_status_local_only_has_tier_counts(self, client: Client):
         client.propose(
@@ -109,7 +113,7 @@ class TestLocalOnlyMode:
             domains=["api"],
         )
         stats = client.status()
-        assert stats.tier_counts == {"local": 1}
+        assert stats.tier_counts == {Tier.LOCAL: 1}
 
     def test_drain_raises_without_remote(self, client: Client):
         with pytest.raises(RuntimeError, match="No remote API configured"):
@@ -704,7 +708,7 @@ class TestRemoteIntegration:
         """status() merges local and remote tier counts."""
         httpx_mock.add_response(
             url=httpx.URL("http://test-remote/api/v1/knowledge/stats"),
-            json={"total_units": 3, "tiers": {"private": 3, "public": 0}, "domains": {}},
+            json={"total_count": 3, "tier_counts": {"private": 3, "public": 0}, "domain_counts": {}},
         )
 
         local_client = Client(local_db_path=tmp_path / "test.db")
@@ -713,9 +717,9 @@ class TestRemoteIntegration:
 
         c = Client(addr="http://test-remote", local_db_path=tmp_path / "test.db")
         stats = c.status()
-        assert stats.tier_counts["local"] == 1
-        assert stats.tier_counts["private"] == 3
-        assert stats.tier_counts["public"] == 0
+        assert stats.tier_counts[Tier.LOCAL] == 1
+        assert stats.tier_counts[Tier.PRIVATE] == 3
+        assert stats.tier_counts[Tier.PUBLIC] == 0
         assert stats.total_count == 4
         c.close()
 
@@ -724,9 +728,9 @@ class TestRemoteIntegration:
         httpx_mock.add_response(
             url=httpx.URL("http://test-remote/api/v1/knowledge/stats"),
             json={
-                "total_units": 5,
-                "tiers": {"private": 5, "public": 0},
-                "domains": {"api": 3, "db": 2},
+                "total_count": 5,
+                "tier_counts": {"private": 5, "public": 0},
+                "domain_counts": {"api": 3, "db": 2},
             },
         )
 
@@ -743,8 +747,82 @@ class TestRemoteIntegration:
         assert stats.domain_counts["db"] == 2
         c.close()
 
-    def test_status_remote_unreachable_returns_local_only(self, tmp_path: Path, httpx_mock):
-        """status() returns local-only tier counts when remote is unreachable."""
+    def test_status_merges_remote_confidence_distribution(self, tmp_path: Path, httpx_mock):
+        """status() sums remote confidence buckets into the local distribution per bucket."""
+        httpx_mock.add_response(
+            url=httpx.URL("http://test-remote/api/v1/knowledge/stats"),
+            json={
+                "total_count": 5,
+                "tier_counts": {"private": 5, "public": 0},
+                "domain_counts": {},
+                "confidence_distribution": {"0.5-0.7": 4, "0.7-1.0": 1},
+            },
+        )
+
+        # Local unit sits at the default 0.5 confidence, sharing a bucket with
+        # the remote's "0.5-0.7" so we can verify accumulation.
+        local_client = Client(local_db_path=tmp_path / "test.db")
+        local_client.propose(summary="S", detail="D", action="A", domains=["api"])
+        local_client.close()
+
+        c = Client(addr="http://test-remote", local_db_path=tmp_path / "test.db")
+        stats = c.status()
+        assert stats.confidence_distribution["0.5-0.7"] == 5  # local 1 + remote 4
+        assert stats.confidence_distribution["0.7-1.0"] == 1
+        c.close()
+
+    def test_status_skips_and_logs_unknown_remote_confidence_bucket(
+        self, tmp_path: Path, httpx_mock, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A remote bucket label this SDK does not recognize is skipped, logged, and
+        surfaced as a warning; never carried as an unknown key nor summed in."""
+        httpx_mock.add_response(
+            url=httpx.URL("http://test-remote/api/v1/knowledge/stats"),
+            json={
+                "total_count": 5,
+                "tier_counts": {"private": 5},
+                "domain_counts": {},
+                "confidence_distribution": {"0.5-0.7": 4, "0.5-0.9": 2},
+            },
+        )
+
+        c = Client(addr="http://test-remote", local_db_path=tmp_path / "test.db")
+        with caplog.at_level(logging.WARNING, logger="cq.client"):
+            stats = c.status()
+        assert stats.confidence_distribution["0.5-0.7"] == 4
+        assert "0.5-0.9" not in stats.confidence_distribution
+        assert any("0.5-0.9" in record.message for record in caplog.records)
+        assert any("0.5-0.9" in warning for warning in stats.warnings)
+        c.close()
+
+    def test_status_skips_non_object_remote_section(
+        self, tmp_path: Path, httpx_mock, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A non-object stats section (e.g. null) degrades to a warning, not a crash;
+        the other sections still merge."""
+        httpx_mock.add_response(
+            url=httpx.URL("http://test-remote/api/v1/knowledge/stats"),
+            json={
+                "total_count": 3,
+                "tier_counts": {"private": 3},
+                "domain_counts": {"api": 2},
+                "confidence_distribution": None,
+            },
+        )
+
+        c = Client(addr="http://test-remote", local_db_path=tmp_path / "test.db")
+        with caplog.at_level(logging.WARNING, logger="cq.client"):
+            stats = c.status()
+        # The malformed section is dropped with a warning; siblings still merge.
+        assert stats.tier_counts[Tier.PRIVATE] == 3
+        assert stats.domain_counts["api"] == 2
+        assert any("confidence_distribution" in warning for warning in stats.warnings)
+        assert any("confidence_distribution" in record.message for record in caplog.records)
+        c.close()
+
+    def test_status_remote_unreachable_surfaces_warning(self, tmp_path: Path, httpx_mock, caplog):
+        """A remote stats failure surfaces a warning + log, not a silent local-only result
+        indistinguishable from a genuinely empty store."""
         httpx_mock.add_exception(httpx.ConnectError("Connection refused"))
 
         local_client = Client(local_db_path=tmp_path / "test.db")
@@ -752,16 +830,50 @@ class TestRemoteIntegration:
         local_client.close()
 
         c = Client(addr="http://unreachable", local_db_path=tmp_path / "test.db")
-        stats = c.status()
+        with caplog.at_level(logging.WARNING, logger="cq.client"):
+            stats = c.status()
         assert stats.total_count == 1
-        assert stats.tier_counts == {"local": 1}
+        assert stats.tier_counts == {Tier.LOCAL: 1}
+        assert stats.warnings, "remote failure should surface as a warning"
+        assert any("unavailable" in w.lower() for w in stats.warnings)
+        assert any("Remote stats unavailable" in r.message for r in caplog.records)
+        c.close()
+
+    def test_status_remote_http_error_surfaces_warning(self, tmp_path: Path, httpx_mock):
+        """A remote stats HTTP error (e.g. 401 from a misconfigured key) surfaces as a warning
+        rather than a silent local-only result."""
+        httpx_mock.add_response(
+            url=httpx.URL("http://test-remote/api/v1/knowledge/stats"),
+            json={"detail": "Invalid API key"},
+            status_code=401,
+        )
+
+        c = Client(addr="http://test-remote", local_db_path=tmp_path / "test.db")
+        stats = c.status()
+        assert stats.tier_counts == {Tier.LOCAL: 0}
+        assert stats.warnings, "remote HTTP error should surface as a warning"
+        assert any("unavailable" in w.lower() for w in stats.warnings)
+        c.close()
+
+    def test_status_remote_non_object_body_surfaces_warning(self, tmp_path: Path, httpx_mock):
+        """A 2xx stats body that is valid JSON but not an object (e.g. a bare array)
+        must surface as a warning, not raise AttributeError from status()."""
+        httpx_mock.add_response(
+            url=httpx.URL("http://test-remote/api/v1/knowledge/stats"),
+            json=[1, 2, 3],
+        )
+
+        c = Client(addr="http://test-remote", local_db_path=tmp_path / "test.db")
+        stats = c.status()
+        assert stats.tier_counts == {Tier.LOCAL: 0}
+        assert stats.warnings, "non-object stats body should surface as a warning"
         c.close()
 
     def test_status_ignores_local_tier_from_remote(self, tmp_path: Path, httpx_mock):
         """status() ignores 'local' tier in remote response to prevent double-counting."""
         httpx_mock.add_response(
             url=httpx.URL("http://test-remote/api/v1/knowledge/stats"),
-            json={"total_units": 6, "tiers": {"local": 1, "private": 4, "public": 1}, "domains": {}},
+            json={"total_count": 6, "tier_counts": {"local": 1, "private": 4, "public": 1}, "domain_counts": {}},
         )
 
         local_client = Client(local_db_path=tmp_path / "test.db")
@@ -770,10 +882,66 @@ class TestRemoteIntegration:
 
         c = Client(addr="http://test-remote", local_db_path=tmp_path / "test.db")
         stats = c.status()
-        assert stats.tier_counts["local"] == 1
-        assert stats.tier_counts["private"] == 4
-        assert stats.tier_counts["public"] == 1
+        assert stats.tier_counts[Tier.LOCAL] == 1
+        assert stats.tier_counts[Tier.PRIVATE] == 4
+        assert stats.tier_counts[Tier.PUBLIC] == 1
         assert stats.total_count == 6
+        c.close()
+
+    def test_status_skips_and_logs_unknown_remote_tier(
+        self, tmp_path: Path, httpx_mock, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """A remote tier this SDK's enum does not know is skipped, logged, and
+        surfaced as a warning; not carried as a bare-string key nor summed into
+        the total."""
+        httpx_mock.add_response(
+            url=httpx.URL("http://test-remote/api/v1/knowledge/stats"),
+            json={"total_count": 13, "tier_counts": {"private": 4, "team": 9}, "domain_counts": {}},
+        )
+
+        c = Client(addr="http://test-remote", local_db_path=tmp_path / "test.db")
+        with caplog.at_level(logging.WARNING, logger="cq.client"):
+            stats = c.status()
+        assert stats.tier_counts == {Tier.LOCAL: 0, Tier.PRIVATE: 4}
+        assert all(isinstance(key, Tier) for key in stats.tier_counts)
+        assert stats.total_count == 4  # local 0 + private 4; unknown 'team' dropped
+        assert any("team" in record.message for record in caplog.records)
+        assert any("team" in warning for warning in stats.warnings)
+        c.close()
+
+    def test_status_decodes_store_stats_wire_shape(self, tmp_path: Path, httpx_mock) -> None:
+        """status() decodes a remote body marshalled from the public StoreStats model.
+
+        Pins the wire contract to the StoreStats vocabulary so the remote
+        decoder and the public stats type cannot drift apart.
+        """
+        remote = StoreStats(
+            total_count=7,
+            domain_counts={"api": 4, "ci": 3},
+            tier_counts={"private": 6, "public": 1},
+            # The server emits the canonical bucket labels, shared with the SDK.
+            confidence_distribution={"0.5-0.7": 6, "0.7-1.0": 1},
+        )
+        httpx_mock.add_response(
+            url=httpx.URL("http://test-remote/api/v1/knowledge/stats"),
+            json=remote.model_dump(mode="json"),
+        )
+
+        local_client = Client(local_db_path=tmp_path / "test.db")
+        local_client.propose(summary="S", detail="D", action="A", domains=["api"])
+        local_client.close()
+
+        c = Client(addr="http://test-remote", local_db_path=tmp_path / "test.db")
+        stats = c.status()
+        assert stats.tier_counts == {Tier.LOCAL: 1, Tier.PRIVATE: 6, Tier.PUBLIC: 1}
+        assert stats.total_count == 8
+        # "api" appears locally (1) and remotely (4); counts must accumulate.
+        assert stats.domain_counts["api"] == 5
+        assert stats.domain_counts["ci"] == 3
+        # Local and remote share bucket labels; the local unit at 0.5
+        # accumulates with the remote's 6 in the same bucket.
+        assert stats.confidence_distribution["0.5-0.7"] == 7
+        assert stats.confidence_distribution["0.7-1.0"] == 1
         c.close()
 
     def test_flag_local_ignores_remote_rejection(self, tmp_path: Path, httpx_mock):
@@ -813,7 +981,7 @@ class TestClientApiBaseUrl:
             captured.append(request.url)
             return httpx.Response(
                 status_code=200,
-                json={"total_units": 0, "tiers": {}, "domains": {}},
+                json={"total_count": 0, "tier_counts": {}, "domain_counts": {}},
                 request=request,
             )
 
@@ -850,7 +1018,7 @@ class TestClientApiBaseUrl:
             captured.append(request.url)
             return httpx.Response(
                 status_code=200,
-                json={"total_units": 0, "tiers": {}, "domains": {}},
+                json={"total_count": 0, "tier_counts": {}, "domain_counts": {}},
                 request=request,
             )
 

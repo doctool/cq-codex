@@ -7,6 +7,7 @@ from cq_install.hosts.claude import ClaudeHost
 from cq_install.hosts.codex import CodexHost
 from cq_install.hosts.cursor import CursorHost
 from cq_install.hosts.opencode import OpenCodeHost
+from cq_install.hosts.pi import PiHost
 from cq_install.hosts.windsurf import WindsurfHost
 
 REGISTRY: dict[str, HostDef] = {
@@ -15,6 +16,7 @@ REGISTRY: dict[str, HostDef] = {
     "cursor": CursorHost(),
     "windsurf": WindsurfHost(),
     "claude": ClaudeHost(),
+    "pi": PiHost(),
 }
 
 
